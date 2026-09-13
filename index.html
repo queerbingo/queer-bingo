@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bingo Cards</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;background:#f5f6f8;margin:0;color:#171717}
+.page{width:min(1100px,calc(100% - 24px));margin:auto;padding:24px 0 48px}
+.header,.card,.empty{background:#fff;border-radius:14px;padding:20px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+.header h1{margin:0 0 8px}.header p{color:#616161;line-height:1.5}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0}
+.tab,.action,.demo-button{border:0;border-radius:9px;padding:11px 16px;cursor:pointer;font-weight:700}
+.tab{background:#e9edf3}.tab[aria-selected="true"],.action{background:#111827;color:#fff}
+.cards{display:grid;gap:22px}.card-head{display:flex;justify-content:space-between;gap:10px;margin-bottom:14px}
+.card-title{margin:0;font-size:21px}.card-subtitle{color:#616161;font-size:14px;margin-top:3px}
+.bingo-grid{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));border-top:2px solid #2b2b2b;border-left:2px solid #2b2b2b}
+.cell{aspect-ratio:1/1;min-height:48px;border:0;border-right:2px solid #2b2b2b;border-bottom:2px solid #2b2b2b;display:grid;place-items:center;background:#fff;font-weight:800;font-size:clamp(15px,3.7vw,25px)}
+button.cell{cursor:pointer}.cell.blank{background:#ececec}.cell.marked{background:#1f6feb;color:#fff;text-decoration:line-through}
+.card-actions{display:flex;gap:10px;margin-top:14px}.action.danger{background:#f8e5e5;color:#8a1c1c}
+.claim-wrap{margin-top:22px}.claim-link{display:inline-block;background:#111827;color:#fff;text-decoration:none;padding:13px 18px;border-radius:9px;font-weight:800}
+.demo{margin-top:14px;padding:12px 14px;border:1px dashed #8a6d00;background:#fff9db;border-radius:10px}
+.small{font-size:13px;color:#616161}
+@media(max-width:600px){.page{width:min(100% - 12px,1100px);padding-top:8px}.header,.card{padding:13px}.cell{min-height:38px;border-width:0 1px 1px 0}.bingo-grid{border-width:1px 0 0 1px}}
+</style>
+</head>
+<body>
+<main class="page">
+<section class="header">
+<h1 id="eventTitle">Bingo Cards</h1>
+<p>Tap a number when it is called. Tap it again to remove the mark.</p>
+<p>Your marks are saved on this browser and device. They are not shared with the caller and do not validate a prize claim.</p>
+<div id="demoBox" class="demo" hidden><strong>Demo mode</strong><p class="small">Sample data for testing.</p></div>
+</section>
+<div id="tabs" class="tabs"></div>
+<section id="cards" class="cards"></section>
+<section id="emptyState" class="empty" hidden>
+<h2>No bingo cards were supplied</h2>
+<p>Open this page using the personalised link sent in your registration email.</p>
+<button id="loadDemo" class="demo-button" type="button">Load demo cards</button>
+</section>
+<div id="claimWrap" class="claim-wrap" hidden>
+<a id="claimLink" class="claim-link" href="#" target="_blank" rel="noopener">Claim Bingo</a>
+</div>
+</main>
+<script>
+let bingoData=null,activeGame=null;
+function sampleData(){return{eventId:"demo-event",title:"LGBTQ+ History Month Bingo",claimUrl:"",cards:[
+{game:1,cardId:239,slot:1,cells:[4,0,22,0,43,0,61,0,82,0,16,0,37,0,55,0,74,88,8,0,28,39,0,0,67,79,0]},
+{game:1,cardId:817,slot:2,cells:[2,0,21,0,44,52,0,0,81,0,12,0,34,0,58,63,0,89,7,18,29,0,47,0,0,73,0]},
+{game:2,cardId:104,slot:1,cells:[1,0,20,0,41,0,66,0,84,0,15,0,31,0,54,0,75,90,9,0,27,38,49,0,62,0,0]}
+]}}
+function readDataFromHash(){
+ const raw=location.hash.replace(/^#/,""); if(!raw)return null;
+ const p=new URLSearchParams(raw); const d=p.get("data"); if(!d)return null;
+ try{return JSON.parse(d)}catch(e){console.error(e);return null}
+}
+function uniqueGames(cards){return[...new Set(cards.map(c=>Number(c.game)))].sort((a,b)=>a-b)}
+function storageKey(card){return`bingoMarks:${bingoData.eventId||"bingo"}:g${card.game}:c${card.cardId}:s${card.slot||1}`}
+function getMarks(card){try{const x=localStorage.getItem(storageKey(card));const a=x?JSON.parse(x):[];return new Set(Array.isArray(a)?a:[])}catch{return new Set()}}
+function saveMarks(card,marks){localStorage.setItem(storageKey(card),JSON.stringify([...marks]))}
+function clearMarks(card){localStorage.removeItem(storageKey(card))}
+function formatCardId(v){const n=Number(v);return Number.isFinite(n)?String(Math.trunc(n)).padStart(3,"0"):String(v??"")}
+function buildCard(card){
+ const s=document.createElement("article");s.className="card";
+ const h=document.createElement("div");h.className="card-head";
+ const tw=document.createElement("div"); const t=document.createElement("h2");t.className="card-title";t.textContent=`Game ${card.game} — Card ${formatCardId(card.cardId)}`;tw.appendChild(t);
+ if(card.slot){const st=document.createElement("div");st.className="card-subtitle";st.textContent=`Card ${card.slot}`;tw.appendChild(st)}
+ h.appendChild(tw);s.appendChild(h);
+ const g=document.createElement("div");g.className="bingo-grid";
+ const cells=Array.isArray(card.cells)?card.cells.slice(0,27):[];while(cells.length<27)cells.push(0);
+ const marks=getMarks(card);
+ cells.forEach((v,i)=>{const n=Number(v)||0;if(n<=0){const b=document.createElement("div");b.className="cell blank";g.appendChild(b);return}
+ const b=document.createElement("button");b.type="button";b.className="cell";b.textContent=n;
+ if(marks.has(i))b.classList.add("marked");
+ b.onclick=()=>{if(marks.has(i)){marks.delete(i);b.classList.remove("marked")}else{marks.add(i);b.classList.add("marked")}saveMarks(card,marks)};
+ g.appendChild(b)});
+ s.appendChild(g);
+ const a=document.createElement("div");a.className="card-actions";
+ const c=document.createElement("button");c.type="button";c.className="action danger";c.textContent="Clear marks";c.onclick=()=>{if(confirm(`Clear all marks on Card ${formatCardId(card.cardId)}?`)){clearMarks(card);render()}};
+ a.appendChild(c);s.appendChild(a);return s
+}
+function render(){
+ const tabs=document.getElementById("tabs"),host=document.getElementById("cards"),empty=document.getElementById("emptyState"),claimWrap=document.getElementById("claimWrap"),claimLink=document.getElementById("claimLink");
+ tabs.innerHTML="";host.innerHTML="";
+ if(!bingoData||!Array.isArray(bingoData.cards)||!bingoData.cards.length){empty.hidden=false;claimWrap.hidden=true;return}
+ empty.hidden=true;document.getElementById("eventTitle").textContent=bingoData.title||"Bingo Cards";
+ const games=uniqueGames(bingoData.cards);if(!games.includes(activeGame))activeGame=games[0];
+ games.forEach(game=>{const b=document.createElement("button");b.type="button";b.className="tab";b.textContent=`Game ${game}`;b.setAttribute("aria-selected",String(game===activeGame));b.onclick=()=>{activeGame=game;render()};tabs.appendChild(b)});
+ bingoData.cards.filter(c=>Number(c.game)===activeGame).sort((a,b)=>Number(a.slot||0)-Number(b.slot||0)).forEach(c=>host.appendChild(buildCard(c)));
+ if(bingoData.claimUrl){claimLink.href=bingoData.claimUrl;claimWrap.hidden=false}else claimWrap.hidden=true
+}
+document.getElementById("loadDemo").onclick=()=>{bingoData=sampleData();activeGame=null;document.getElementById("demoBox").hidden=false;render()};
+bingoData=readDataFromHash();render();
+</script>
+</body>
+</html>
